@@ -1,4 +1,4 @@
-include("../src/bayesianGP.jl")
+include("../src/model.jl")
 using Gen
 using Plots
 

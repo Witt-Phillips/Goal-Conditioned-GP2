@@ -104,12 +104,12 @@ function_types = [Lin, Sin, Add, Mul]
     
     # Otherwise, generate parameters for the primitive function.
     if function_type == Lin
-        slope = ({:slope} ~ uniform(-5.0, 5.0))
-        intercept = ({:intercept} ~ uniform(-5.0, 5.0))
+        slope = ({:slope} ~ uniform(-1.0, 1.0))
+        intercept = ({:intercept} ~ uniform(0, 1.0))
         return Lin(slope, intercept)
     elseif function_type == Sin
-        amplitude = ({:amplitude} ~ uniform(0.5, 5.0))
-        period = ({:period} ~ uniform(0.5, 5.0))
+        amplitude = ({:amplitude} ~ uniform(0.1, 2.0))
+        period = ({:period} ~ uniform(0.1, 2.0))
         return Sin(amplitude, period)
     end
 end;

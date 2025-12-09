@@ -1,5 +1,15 @@
-include("bayesianGP.jl")
+include("../model.jl")
+include("../kernel_prior.jl")
+
 using Gen
+
+function run_mcmc(trace, frames::Int, iters_per_frame::Int)
+    for iter in 1:iters_per_frame
+        trace, = mh(trace, regen_random_subtree_randomness, (), subtree_involution)
+        trace, = mh(trace, select(:noise))
+    end
+    return trace
+end
 
 function initialize_trace(xs::Vector{Float64}, ys::Vector{Float64})
     tr, = generate(model, (xs,), choicemap(:ys => ys))

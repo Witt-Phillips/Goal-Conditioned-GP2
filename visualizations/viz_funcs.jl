@@ -1,6 +1,8 @@
-include("rnd_subtree_inv.jl")
+using Plots
 
-function run_mcmc(trace, frames::Int, iters_per_frame::Int)
+include("../src/inference/involutive_mcmc.jl")
+
+function run_mcmc_viz(trace, frames::Int, iters_per_frame::Int)
     
     viz = @animate for frame=1:frames
         for iter in iters_per_frame
@@ -15,3 +17,4 @@ function run_mcmc(trace, frames::Int, iters_per_frame::Int)
     println(get_retval(trace))
     gif(viz)
 end
+
