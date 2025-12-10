@@ -125,7 +125,7 @@ function normalize(vals::Vector{Float64})
 end
 
 """Generate data points from a function with random x range, then normalize to [0,1]"""
-function get_data(fn::FunctionNode, n_points=21)
+function get_data(fn::FunctionNode, n_points=21; noise=0.0)
     
     # Sample x range from prior (e.g., uniform over some reasonable range)
     xmin = rand() * 4.0 - 2.0  # Range from -2 to 2
@@ -134,6 +134,11 @@ function get_data(fn::FunctionNode, n_points=21)
     # Generate points in the sampled range
     xs_raw = collect(Float64, range(xmin, length=n_points, stop=xmax))
     ys_raw = eval_func(fn, xs_raw)
+    
+    # Add noise if specified (Gaussian noise with standard deviation = noise)
+    if noise > 0.0
+        ys_raw = ys_raw .+ randn(n_points) .* noise
+    end
     
     # Normalize both x and y to [0, 1]
     xs = normalize(xs_raw)
