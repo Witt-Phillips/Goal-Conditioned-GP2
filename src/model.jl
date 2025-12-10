@@ -1,3 +1,5 @@
+# = Adapted from the Gen tutorials: https://www.gen.dev/tutorials/rj/tutorial#synthesis=#
+
 include("kernel.jl")
 include("covariance.jl")
 include("kernel_prior.jl")

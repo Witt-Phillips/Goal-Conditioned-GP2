@@ -1,6 +1,5 @@
 # = Adapted from the Gen tutorials: https://www.gen.dev/tutorials/rj/tutorial#synthesis=#
 
-
 import LinearAlgebra
 
 """Node in a tree representing a covariance function"""

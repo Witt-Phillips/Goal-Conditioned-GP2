@@ -1,8 +1,10 @@
+#= Adapted from the AC codebase: https://github.com/CNCLgithub/AdaptiveComputation =#
+
 using Gen: logsumexp
 
 abstract type AllocationStrategy end
 
-# Default implementations for strategies that don't track state
+# Default implementations for strategies. don't track state
 reset_round!(::AllocationStrategy, ::Int) = nothing
 record_move!(::AllocationStrategy, ::Int, ::Bool) = nothing
 
@@ -35,7 +37,7 @@ end
 #==============================================================================
   TASK-DRIVEN ADAPTIVE COMPUTATION
   
-  Following the AC paper's framework:
+  Following AC framework:
   - δˢ (Sensitivity): How much do MCMC moves change the task objective?
   - δᵖ (Decision Relevance): How much does this particle matter for decisions?
   - Δ (Task Relevance): Combined score determining allocation
@@ -91,10 +93,7 @@ end
 
 
 #==============================================================================
-  EXTRAPOLATION OBJECTIVES
-  
-  These objectives focus on prediction quality *beyond* the training range,
-  which is often the key task for GP kernel discovery.
+  EXTRAPOLATION
 ==============================================================================#
 
 """
@@ -120,131 +119,15 @@ function evaluate_objective(obj::ExtrapolationObjective, trace)
     train_ys = trace[:ys]
     
     try
-        # Get predictive mean at extrapolation points
         μ, Σ = compute_predictive(kernel, noise, train_xs, train_ys, obj.extrap_xs)
         
-        # Negative MSE (higher = better)
+        # neg MSE (higher = better)
         mse = mean((μ .- obj.extrap_ys).^2)
         return -mse
     catch e
         return -Inf
     end
 end
-
-"""
-Extrapolation uncertainty objective (no ground truth needed).
-
-Rewards kernels that make confident (low-variance) predictions
-beyond the training range. The intuition: kernels that "understand"
-the underlying structure should extrapolate confidently.
-
-Parameters:
-- extrap_xs: X values beyond training range (auto-generated if not provided)
-- n_extrap_points: Number of extrapolation points to generate
-- extrap_range: How far beyond training data to extrapolate (fraction of data range)
-
-Note: This objective rewards LOW uncertainty, which may not always be desirable.
-For some tasks, you might want high uncertainty on extrapolation (epistemic humility).
-"""
-@kwdef struct ExtrapolationUncertaintyObjective <: TaskObjective
-    extrap_xs::Union{Vector{Float64}, Nothing} = nothing
-    n_extrap_points::Int = 10
-    extrap_range::Float64 = 0.5  # extrapolate 50% beyond data range
-end
-
-function evaluate_objective(obj::ExtrapolationUncertaintyObjective, trace)
-    kernel = get_retval(trace)
-    noise = trace[:noise]
-    train_xs, = get_args(trace)
-    train_ys = trace[:ys]
-    
-    # Generate extrapolation points if not provided
-    extrap_xs = if obj.extrap_xs !== nothing
-        obj.extrap_xs
-    else
-        x_min, x_max = extrema(train_xs)
-        x_range = x_max - x_min
-        extrap_dist = x_range * obj.extrap_range
-        
-        # Extrapolate on both sides
-        left_xs = collect(range(x_min - extrap_dist, x_min - 0.01, length=obj.n_extrap_points ÷ 2))
-        right_xs = collect(range(x_max + 0.01, x_max + extrap_dist, length=obj.n_extrap_points ÷ 2))
-        vcat(left_xs, right_xs)
-    end
-    
-    try
-        # Get predictive distribution at extrapolation points
-        μ, Σ = compute_predictive(kernel, noise, train_xs, train_ys, extrap_xs)
-        
-        # Average predictive variance (diagonal of covariance matrix)
-        avg_variance = mean(diag(Σ))
-        
-        # Return negative variance (higher = better = lower uncertainty)
-        return -avg_variance
-    catch e
-        return -Inf
-    end
-end
-
-"""
-Extrapolation sensitivity objective.
-
-Measures how much predictions change at extrapolation points
-when the kernel structure changes. High sensitivity = the kernel
-structure really matters for extrapolation.
-
-This is useful for identifying which particles have "fragile" 
-extrapolation behavior that might flip with small MCMC changes.
-"""
-@kwdef struct ExtrapolationSensitivityObjective <: TaskObjective
-    extrap_xs::Union{Vector{Float64}, Nothing} = nothing
-    n_extrap_points::Int = 10
-    extrap_range::Float64 = 0.5
-    # Store previous predictions for sensitivity calculation
-    prev_predictions::Dict{UInt64, Vector{Float64}} = Dict{UInt64, Vector{Float64}}()
-end
-
-function evaluate_objective(obj::ExtrapolationSensitivityObjective, trace)
-    kernel = get_retval(trace)
-    noise = trace[:noise]
-    train_xs, = get_args(trace)
-    train_ys = trace[:ys]
-    
-    # Generate extrapolation points if not provided
-    extrap_xs = if obj.extrap_xs !== nothing
-        obj.extrap_xs
-    else
-        x_min, x_max = extrema(train_xs)
-        x_range = x_max - x_min
-        extrap_dist = x_range * obj.extrap_range
-        right_xs = collect(range(x_max + 0.01, x_max + extrap_dist, length=obj.n_extrap_points))
-        right_xs
-    end
-    
-    try
-        μ, _ = compute_predictive(kernel, noise, train_xs, train_ys, extrap_xs)
-        
-        # Use trace id to track predictions
-        trace_id = objectid(trace)
-        
-        if haskey(obj.prev_predictions, trace_id)
-            prev_μ = obj.prev_predictions[trace_id]
-            # Sensitivity = how much did predictions change?
-            sensitivity = mean(abs.(μ .- prev_μ))
-            obj.prev_predictions[trace_id] = μ
-            return sensitivity
-        else
-            obj.prev_predictions[trace_id] = μ
-            return 0.0  # No previous prediction to compare
-        end
-    catch e
-        return 0.0
-    end
-end
-
-# Helper for diagonal extraction
-diag(M::Matrix) = [M[i,i] for i in 1:size(M,1)]
-
 
 """
 Task-Driven Adaptive Computation
@@ -263,34 +146,15 @@ Parameters:
 - x0, m, α: Arousal parameters (for adaptive mode)
 """
 @kwdef mutable struct TaskDrivenAC <: AllocationStrategy
-    # Task objective
     objective::TaskObjective = PosteriorObjective()
-    
-    # Temperature for importance distribution
     τ::Float64 = 1.0
-    
-    # Minimum moves per particle
     jmin::Int = 1
-    
-    # Number of probe moves to estimate sensitivity
     n_probe_moves::Int = 3
-    
-    # Decision relevance mode
-    # :competitive - 4w(1-w), peaks at w=0.5 (like MOT)
-    # :weight - w, favor high-weight particles
-    # :exploration - 1-w, favor low-weight particles  
-    # :uniform - ignore weights
     δπ_mode::Symbol = :competitive
-    
-    # Arousal mode
-    # :fixed - use budget as-is
-    # :adaptive - scale budget based on aggregate sensitivity
     arousal_mode::Symbol = :fixed
     x0::Float64 = 5.0   # arousal intercept
     m::Float64 = 1.0    # arousal slope
     α::Int = 200        # max arousal cap
-    
-    # State for tracking (used for acceptance-based sensitivity)
     acceptance_counts::Vector{Int} = Int[]
     move_counts::Vector{Int} = Int[]
 end
@@ -321,7 +185,6 @@ function estimate_sensitivity(
 )
     P_before = evaluate_objective(ac.objective, trace)
     
-    # Do probe moves and measure objective change
     total_change = 0.0
     current_trace = trace
     n_accepted = 0
@@ -337,8 +200,7 @@ function estimate_sensitivity(
         end
     end
     
-    # Sensitivity = average absolute change in objective
-    # High sensitivity = MCMC moves significantly affect the task
+    # sensitivity = average absolute change in objective
     δS = ac.n_probe_moves > 0 ? total_change / ac.n_probe_moves : 0.0
     
     return δS, current_trace, n_accepted
@@ -362,7 +224,7 @@ function compute_decision_relevance(ac::TaskDrivenAC, weights::Vector{Float64})
         elseif ac.δπ_mode == :exploration
             # Favor low-weight particles (exploration)
             1 - w
-        else  # :uniform
+        else  # uniform
             1.0 / n
         end
     end
@@ -387,46 +249,40 @@ function compute_allocations(
     n = length(traces)
     n == 0 && return Int[]
     
-    # Normalize weights
     log_Z = logsumexp(log_weights)
     weights = exp.(log_weights .- log_Z)
     
     # --- Compute δˢ (Sensitivity) ---
-    # Option 1: From acceptance history (if we've been tracking)
-    # Option 2: From score variance across particles (proxy for "unsettledness")
-    
-    if !isempty(ac.move_counts) && sum(ac.move_counts) > 0
-        # Use acceptance rates as sensitivity proxy
-        # High acceptance = still exploring = needs more moves
-        δS = zeros(n)
-        for i in 1:n
-            if i <= length(ac.move_counts) && ac.move_counts[i] > 0
-                δS[i] = ac.acceptance_counts[i] / ac.move_counts[i]
-            else
-                δS[i] = 0.5  # default
-            end
-        end
+    # Use acceptance rates as sensitivity proxy
+    #     # High acceptance = still exploring = needs more moves
+    #     δS = zeros(n)
+    #     for i in 1:n
+    #         if i <= length(ac.move_counts) && ac.move_counts[i] > 0
+    #             δS[i] = ac.acceptance_counts[i] / ac.move_counts[i]
+    #         else
+    #             δS[i] = 0.5  # default
+    #         end
+    #     end
+    # else
+
+    # NEW: task-conditioned sensitivity (previously used acceptance rates)
+    objectives = [evaluate_objective(ac.objective, tr) for tr in traces]
+    obj_min = minimum(objectives)
+    obj_max = maximum(objectives)
+    obj_range = obj_max - obj_min
+    if obj_range > 0
+        # better particles get more sensitivity
+        δS = [(o - obj_min) / obj_range for o in objectives]
     else
-        # Use objective-based sensitivity
-        # Particles with scores far from the mean are "interesting"
-        objectives = [evaluate_objective(ac.objective, tr) for tr in traces]
-        obj_mean = mean(objectives)
-        obj_std = std(objectives)
-        if obj_std > 0
-            # Normalized distance from mean (both high and low are interesting)
-            δS = [abs(o - obj_mean) / obj_std for o in objectives]
-        else
-            δS = ones(n)
-        end
+        δS = ones(n)
     end
+    
     
     # --- Compute δᵖ (Decision Relevance) ---
     δπ = compute_decision_relevance(ac, weights)
     
     # --- Compute Task Relevance Δ ---
     # Combine sensitivity and decision relevance
-    # Both are important: we want particles that are both
-    # (a) sensitive to MCMC moves and (b) decision-relevant
     Δ = [log(δS[i] + 1e-10) + log(δπ[i] + 1e-10) for i in 1:n]
     
     # --- Compute Arousal (total budget) ---
@@ -505,3 +361,6 @@ function std(x)
     m = mean(x)
     sqrt(sum((xi - m)^2 for xi in x) / length(x))
 end
+
+# Helper for diagonal extraction
+diag(M::Matrix) = [M[i,i] for i in 1:size(M,1)]

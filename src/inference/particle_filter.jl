@@ -1,12 +1,13 @@
+#= Adapted from the AC codebase: https://github.com/CNCLgithub/AdaptiveComputation =#
 using Gen
 
 include("../model.jl")
 include("involutive_mcmc.jl")
-include("ac/ac.jl")
+include("ac.jl")
 
 
 """
-GP Particle Filter with Adaptive Computation support.
+Particle Filter over Gaussian Process kernels, using Adaptive Computation.
 
 Arguments:
 - xs, ys: Training data
