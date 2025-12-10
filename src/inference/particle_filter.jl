@@ -48,6 +48,3 @@ function gp_particle_filter(
     
     return Gen.sample_unweighted_traces(state, num_samples)
 end
-
-
-
