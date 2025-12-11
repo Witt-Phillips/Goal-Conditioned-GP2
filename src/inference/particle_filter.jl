@@ -41,11 +41,7 @@ function gp_particle_filter(
     allocation_history = return_history ? Vector{Vector{Int}}() : nothing
     
     for round in 1:num_rounds
-        # Reset per-round tracking state (for strategies that track acceptance)
-        reset_round!(allocation, num_particles)
-        
         # Compute allocations BEFORE resampling 
-        # (while scores/weights still differentiate particles)
         allocations = compute_allocations(
             allocation, 
             state.traces, 
@@ -72,8 +68,6 @@ function gp_particle_filter(
                     (),
                     subtree_involution
                 )
-                # Track acceptance for sensitivity estimation
-                record_move!(allocation, i, accepted)
                 
                 # Noise hyperparameter move
                 state.traces[i], = mh(state.traces[i], select(:noise))
